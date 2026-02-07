@@ -1,0 +1,20 @@
+{
+  "name": "@prism-protocol/cre-workflows",
+  "version": "0.1.0",
+  "description": "Chainlink CRE workflows for PRISM Protocol risk monitoring and automated protection",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@chainlink/cre-sdk": "^1.0.9",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}

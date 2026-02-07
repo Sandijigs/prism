@@ -1,0 +1,33 @@
+# ── Environment ──
+.env
+.env.local
+.env.*.local
+
+# ── Foundry ──
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+
+# ── Node / TypeScript ──
+node_modules/
+dist/
+*.tsbuildinfo
+
+# ── Next.js ──
+frontend/.next/
+frontend/out/
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Misc ──
+coverage/
+lcov.info
+*.log

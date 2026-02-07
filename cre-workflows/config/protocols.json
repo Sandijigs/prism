@@ -1,0 +1,20 @@
+{
+  "$schema": "./protocols.schema.json",
+  "protocols": [
+    {
+      "id": "example-protocol",
+      "name": "Example Protocol",
+      "chain": "ethereum",
+      "type": "lending",
+      "addresses": {
+        "vault": "0x0000000000000000000000000000000000000000"
+      },
+      "thresholds": {
+        "green": 0.05,
+        "yellow": 0.15,
+        "orange": 0.35,
+        "red": 0.35
+      }
+    }
+  ]
+}
