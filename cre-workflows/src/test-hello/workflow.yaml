@@ -1,0 +1,8 @@
+# CRE Workflow Settings for test-hello
+
+local-simulation:
+  user-workflow:
+    workflow-name: "test-hello"
+  workflow-artifacts:
+    workflow-path: "./index.ts"
+    config-path: "./config.json"
