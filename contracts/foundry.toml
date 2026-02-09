@@ -13,6 +13,10 @@ remappings = [
 eth_rpc_url = "${TENDERLY_RPC_URL}"
 chain_id = 73571
 
+fs_permissions = [
+    { access = "read-write", path = "." },
+]
+
 [fmt]
 line_length = 120
 tab_width = 4

@@ -1,0 +1,23 @@
+{
+  "chainId": 73571,
+  "network": "tenderly-vtn",
+  "deployer": "0xc31F9d7c714CA694224e041Ec55C9B2adb892b0D",
+  "contracts": {
+    "mockUSDC": "0x4ac5C5d069Abb7023A0306Ad3058e16ACE44610B",
+    "riskMarket": "0x7adcC628e5B2167e9Ad7a78249007b21f03853eD",
+    "insurancePool": "0x3F3F9256Fed14D07BFb524b93DDb1CA1dc56f335",
+    "shieldVault": "0x76146B7f5bD0b83CB5c5DA0C0416A48dA40A8DbC",
+    "worldIDGate": "0x3Db12a421cDeAe0EE70db946Bc3d8e00Cc7BC4D6",
+    "prismToken": "0x659De2D8751548Ba5D1f6199e80796b772b57cC4"
+  },
+  "rpc": "https://virtual.mainnet.eu.rpc.tenderly.co/dad1d291-6bcd-4bf1-b99d-609129d7057a",
+  "adminRpc": "https://virtual.mainnet.eu.rpc.tenderly.co/34bf7395-c4b7-4718-ac0a-b813e49ee8da",
+  "explorer": "https://dashboard.tenderly.co/sasha_bey/project/testnet/8e50aefd-ebcd-44a4-a626-1055c2dc308e",
+  "status": {
+    "deployed": true,
+    "wired": true,
+    "usdcMinted": true,
+    "insurancePoolSeeded": true,
+    "riskMarketApproved": true
+  }
+}
