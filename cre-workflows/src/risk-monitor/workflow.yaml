@@ -1,0 +1,8 @@
+# CRE Workflow Settings for risk-monitor
+
+local-simulation:
+  user-workflow:
+    workflow-name: "risk-monitor"
+  workflow-artifacts:
+    workflow-path: "./index.ts"
+    config-path: "./config.json"

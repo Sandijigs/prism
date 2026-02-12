@@ -1,0 +1,8 @@
+{
+	"schedule": "*/5 * * * *",
+	"riskMarketAddress": "0x7adcC628e5B2167e9Ad7a78249007b21f03853eD",
+	"chainSelectorName": "ethereum-testnet-sepolia",
+	"defiLlamaApiUrl": "https://api.llama.fi",
+	"monitoredProtocol": "aave",
+	"gasLimit": "500000"
+}
