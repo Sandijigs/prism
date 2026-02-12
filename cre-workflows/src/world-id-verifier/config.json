@@ -1,0 +1,12 @@
+{
+	"schedule": "*/30 * * * *",
+	"worldIdGateAddress": "0x3Db12a421cDeAe0EE70db946Bc3d8e00Cc7BC4D6",
+	"riskMarketAddress": "0x7adcC628e5B2167e9Ad7a78249007b21f03853eD",
+	"chainRpcUrl": "https://virtual.mainnet.eu.rpc.tenderly.co/dad1d291-6bcd-4bf1-b99d-609129d7057a",
+	"chainSelectorName": "ethereum-testnet-sepolia",
+	"worldIdApiUrl": "",
+	"testAddresses": [
+		"0xc31F9d7c714CA694224e041Ec55C9B2adb892b0D"
+	],
+	"gasLimit": "300000"
+}
