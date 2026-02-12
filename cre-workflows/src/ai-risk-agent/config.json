@@ -1,0 +1,14 @@
+{
+	"schedule": "*/10 * * * *",
+	"riskMarketAddress": "0x7adcC628e5B2167e9Ad7a78249007b21f03853eD",
+	"chainRpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
+	"chainSelectorName": "ethereum-testnet-sepolia",
+	"llmApiUrl": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+	"llmApiKey": "AIzaSyA2qel1FbMUFkJTvR8t9iskIF9oMjd6f7I",
+	"defiLlamaApiUrl": "https://api.llama.fi",
+	"githubApiUrl": "https://api.github.com",
+	"githubRepo": "aave/aave-v3-origin",
+	"monitoredProtocol": "aave",
+	"tradeAmountUsdc": "500",
+	"gasLimit": "500000"
+}

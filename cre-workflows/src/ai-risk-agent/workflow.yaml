@@ -1,0 +1,8 @@
+# CRE Workflow Settings for ai-risk-agent
+
+local-simulation:
+  user-workflow:
+    workflow-name: "ai-risk-agent"
+  workflow-artifacts:
+    workflow-path: "./index.ts"
+    config-path: "./config.json"
