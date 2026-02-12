@@ -1,0 +1,8 @@
+# CRE Workflow Settings for reserve-verifier
+
+local-simulation:
+  user-workflow:
+    workflow-name: "reserve-verifier"
+  workflow-artifacts:
+    workflow-path: "./index.ts"
+    config-path: "./config.json"
