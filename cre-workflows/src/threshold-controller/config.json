@@ -1,0 +1,10 @@
+{
+	"pollInterval": "*/1 * * * *",
+	"riskMarketAddress": "0x7adcC628e5B2167e9Ad7a78249007b21f03853eD",
+	"shieldVaultAddress": "0x76146B7f5bD0b83CB5c5DA0C0416A48dA40A8DbC",
+	"insurancePoolAddress": "0x3F3F9256Fed14D07BFb524b93DDb1CA1dc56f335",
+	"chainRpcUrl": "https://virtual.mainnet.eu.rpc.tenderly.co/dad1d291-6bcd-4bf1-b99d-609129d7057a",
+	"chainSelectorName": "ethereum-testnet-sepolia",
+	"gasLimit": "500000",
+	"poolHealthThresholdBps": "8000"
+}
