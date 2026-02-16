@@ -13,9 +13,12 @@ node_modules/
 dist/
 *.tsbuildinfo
 
-# ── Next.js ──
+# ── Next.js / Frontend ──
 frontend/.next/
 frontend/out/
+frontend/node_modules/
+frontend/.env.local
+frontend/.env.*.local
 
 # ── OS ──
 .DS_Store

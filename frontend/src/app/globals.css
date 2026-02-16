@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@theme {
+  --color-zone-green: #2D6A4F;
+  --color-zone-yellow: #E9C46A;
+  --color-zone-orange: #F4A261;
+  --color-zone-red: #E63946;
+  --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+:root {
+  --background: #030712;
+  --foreground: #ffffff;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
