@@ -10,5 +10,6 @@
 	"githubRepo": "aave/aave-v3-origin",
 	"monitoredProtocol": "aave",
 	"tradeAmountUsdc": "500",
-	"gasLimit": "500000"
+	"gasLimit": "500000",
+	"coinGeckoApiUrl": "https://api.coingecko.com/api/v3"
 }
