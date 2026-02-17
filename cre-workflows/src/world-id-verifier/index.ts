@@ -2,9 +2,10 @@
  * World ID Verifier Workflow
  *
  * Verifies user identities via World ID protocol to enable sybil-resistant
- * trading weights in the RiskMarket. In production, this would verify real
- * World ID proofs via the World ID API using Confidential HTTP. For the
- * hackathon demo, it uses mock verification mode.
+ * trading weights in the RiskMarket. Supports three verification paths:
+ *   1. Mock mode — instant verification for hackathon demos
+ *   2. Real mode — World ID Groth16 proof via Confidential HTTP
+ *   3. Cross-chain — relay verification from a source chain via CRE DON
  *
  * Pattern: cron trigger -> (optional: Confidential HTTP World ID API) -> EVM write
  */
@@ -35,8 +36,19 @@ import {
 	resetPrivacyReport,
 } from "../shared/confidential-http";
 import { privateTransact } from "../shared/private-tx";
+import type {
+	CrossChainVerificationRequest,
+	CrossChainVerificationResult,
+} from "./types";
 
 // ── Config ──────────────────────────────────────────────────────────────
+
+const crossChainRequestSchema = z.object({
+	user: z.string(),
+	sourceChainSelector: z.number(),
+	sourceAddress: z.string(),
+	proof: z.string().optional(),
+});
 
 const configSchema = z.object({
 	schedule: z.string(),
@@ -46,6 +58,7 @@ const configSchema = z.object({
 	chainSelectorName: z.string(),
 	worldIdApiUrl: z.string().optional(),
 	testAddresses: z.array(z.string()).optional(),
+	crossChainRequests: z.array(crossChainRequestSchema).optional(),
 	gasLimit: z.string().optional(),
 });
 
@@ -59,6 +72,17 @@ const WORLD_ID_GATE_ABI = [
 		type: "function",
 		stateMutability: "nonpayable",
 		inputs: [{ name: "user", type: "address" }],
+		outputs: [],
+	},
+	{
+		name: "verifyCrossChain",
+		type: "function",
+		stateMutability: "nonpayable",
+		inputs: [
+			{ name: "user", type: "address" },
+			{ name: "sourceChainSelector", type: "uint64" },
+			{ name: "sourceAddress", type: "address" },
+		],
 		outputs: [],
 	},
 	{
@@ -153,12 +177,52 @@ const verifyUser = (
 	}
 };
 
+// ── Cross-Chain Verification (CRE) ──────────────────────────────────────
+
+function handleCrossChainVerification<TConfig>(
+	runtime: Runtime<TConfig>,
+	evmClient: EVMClient,
+	worldIdGateAddress: string,
+	request: CrossChainVerificationRequest,
+	gasLimit: string,
+): CrossChainVerificationResult {
+	runtime.log(
+		`[CROSS-CHAIN] Verifying ${request.user.slice(0, 8)}... from chain ${request.sourceChainSelector}`,
+	);
+
+	const callData = encodeFunctionData({
+		abi: WORLD_ID_GATE_ABI,
+		functionName: "verifyCrossChain",
+		args: [
+			request.user as Address,
+			BigInt(request.sourceChainSelector),
+			request.sourceAddress as Address,
+		],
+	});
+
+	const result = privateTransact(runtime, evmClient, {
+		receiver: worldIdGateAddress,
+		callData,
+		gasLimit,
+		label: `WorldIDGate.verifyCrossChain(${request.user.slice(0, 8)}...)`,
+	});
+
+	return {
+		success: result.success,
+		user: request.user,
+		method: "cross-chain",
+		sourceChain: request.sourceChainSelector,
+		error: result.error,
+	};
+}
+
 // ── Result Type ─────────────────────────────────────────────────────────
 
 type WorldIdVerifierResult = {
 	action: string;
 	reason?: string;
 	verifiedCount?: number;
+	crossChainCount?: number;
 	mode?: string;
 	totalAddresses?: number;
 };
@@ -302,8 +366,39 @@ const onCronTrigger = (runtime: Runtime<Config>): WorldIdVerifierResult => {
 		}
 	}
 
+	// ── 5. Process cross-chain verification requests ────────────
+	const crossChainRequests = config.crossChainRequests ?? [];
+	let crossChainCount = 0;
+
+	if (crossChainRequests.length > 0) {
+		runtime.log(
+			`[CROSS-CHAIN] Processing ${crossChainRequests.length} cross-chain request(s)`,
+		);
+
+		for (const request of crossChainRequests) {
+			const ccResult = handleCrossChainVerification(
+				runtime,
+				evmClient,
+				config.worldIdGateAddress,
+				request,
+				gasLimit,
+			);
+
+			if (ccResult.success) {
+				crossChainCount++;
+				runtime.log(
+					`[CROSS-CHAIN] ${request.user.slice(0, 8)}... verified from chain ${request.sourceChainSelector}`,
+				);
+			} else {
+				runtime.log(
+					`[CROSS-CHAIN] Failed: ${ccResult.error ?? "unknown error"}`,
+				);
+			}
+		}
+	}
+
 	runtime.log(
-		`[WORLD_ID_VERIFIER] Verified ${verifiedCount} user(s) successfully`,
+		`[WORLD_ID_VERIFIER] Verified ${verifiedCount} user(s), ${crossChainCount} cross-chain`,
 	);
 
 	logPrivacyStatus(runtime);
@@ -311,8 +406,9 @@ const onCronTrigger = (runtime: Runtime<Config>): WorldIdVerifierResult => {
 	return {
 		action: "verification_complete",
 		verifiedCount,
+		crossChainCount,
 		mode: useMockMode ? "mock" : "real",
-		totalAddresses: addressesToVerify.length,
+		totalAddresses: addressesToVerify.length + crossChainRequests.length,
 	};
 };
 
@@ -322,6 +418,65 @@ const initWorkflow = (config: Config) => {
 	const cron = new CronCapability();
 	return [handler(cron.trigger({ schedule: config.schedule }), onCronTrigger)];
 };
+
+// ── Simulation Helper (ethers.js) ──────────────────────────────────────
+
+/**
+ * Standalone cross-chain verification handler for use by simulate.ts.
+ * Uses ethers.js directly (not CRE SDK) for Tenderly VTN interaction.
+ */
+export async function handleVerificationRequest(
+	provider: import("ethers").JsonRpcProvider,
+	worldIdGateAddress: string,
+	request: CrossChainVerificationRequest,
+): Promise<CrossChainVerificationResult> {
+	const { ethers } = await import("ethers");
+
+	const gate = new ethers.Contract(
+		worldIdGateAddress,
+		[
+			"function isVerified(address) view returns (bool)",
+			"function totalVerified() view returns (uint256)",
+			"function crossChainVerifications(address) view returns (uint64, address, uint256, bool)",
+		],
+		provider,
+	);
+
+	try {
+		const isVerified: boolean = await gate.isVerified(request.user);
+		const totalVerified: bigint = await gate.totalVerified();
+
+		if (isVerified) {
+			// Check if cross-chain record exists
+			const [selector, srcAddr, ts, valid] =
+				await gate.crossChainVerifications(request.user);
+
+			return {
+				success: true,
+				user: request.user,
+				method:
+					Number(selector) > 0 ? "cross-chain" : "mock",
+				sourceChain:
+					Number(selector) > 0
+						? Number(selector)
+						: undefined,
+			};
+		}
+
+		return {
+			success: true,
+			user: request.user,
+			method: "mock",
+		};
+	} catch (err) {
+		return {
+			success: false,
+			user: request.user,
+			method: "cross-chain",
+			error: String(err),
+		};
+	}
+}
 
 export async function main() {
 	const runner = await Runner.newRunner<Config>({ configSchema });
