@@ -1,0 +1,63 @@
+# ── PRISM CRE Project Configuration ───────────────────────────────────
+#
+# Non-sensitive workflow configuration for all PRISM CRE workflows.
+# This file is safe to commit to version control.
+# ──────────────────────────────────────────────────────────────────────
+
+project:
+  name: "prism-protocol"
+  version: "0.1.0"
+  description: "Intelligent risk markets with CRE workflows"
+
+# ── Network Configuration ────────────────────────────────────────────
+
+network:
+  chainFamily: "evm"
+  chainSelectorName: "ETHEREUM_TESTNET_SEPOLIA"
+  isTestnet: true
+
+# ── Workflow Schedules ───────────────────────────────────────────────
+
+schedules:
+  riskMonitor: "*/5 * * * *"       # Every 5 minutes
+  aiRiskAgent: "*/10 * * * *"      # Every 10 minutes
+  thresholdController: "* * * * *" # Every minute
+  reserveVerifier: "*/15 * * * *"  # Every 15 minutes
+  worldIdVerifier: "*/30 * * * *"  # Every 30 minutes
+
+# ── Contract Addresses ───────────────────────────────────────────────
+# These are loaded from config/addresses.json at runtime.
+# See addresses.json for the current deployed addresses.
+
+# ── Data Sources ─────────────────────────────────────────────────────
+
+dataSources:
+  defiLlamaApiUrl: "https://api.llama.fi"
+  githubApiUrl: "https://api.github.com"
+  coinGeckoApiUrl: "https://api.coingecko.com/api/v3"
+  monitoredProtocol: "aave"
+
+# ── Privacy Settings ─────────────────────────────────────────────────
+
+privacy:
+  # Use Confidential HTTP for all external API calls
+  confidentialHttp: true
+  # Use Private Transactions for all on-chain writes
+  privateTransactions: true
+  # Encrypt LLM request/response in DON consensus
+  encryptLlmOutput: true
+
+# ── Trading Parameters ───────────────────────────────────────────────
+
+trading:
+  baseTradeUsdc: 1000
+  minTradeUsdc: 100
+  maxTradeUsdc: 5000
+  hysteresisThreshold: 5
+  cooldownMs: 120000
+
+# ── Gas Configuration ────────────────────────────────────────────────
+
+gas:
+  defaultGasLimit: "500000"
+  worldIdGasLimit: "300000"

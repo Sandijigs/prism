@@ -11,21 +11,23 @@
 import {
 	CronCapability,
 	consensusMedianAggregation,
+	ConfidentialHTTPClient,
+	type ConfidentialHTTPSendRequester,
 	EVMClient,
-	HTTPClient,
-	type HTTPSendRequester,
 	encodeCallMsg,
 	getNetwork,
 	handler,
 	LATEST_BLOCK_NUMBER,
-	ok,
-	prepareReportRequest,
 	Runner,
 	type Runtime,
-	text,
-	TxStatus,
 	bytesToHex,
 } from "@chainlink/cre-sdk";
+import {
+	trackConfidentialRequest,
+	logPrivacyStatus,
+	resetPrivacyReport,
+} from "../shared/confidential-http";
+import { privateTransact } from "../shared/private-tx";
 import {
 	type Address,
 	decodeFunctionResult,
@@ -80,24 +82,31 @@ const SOLVENCY_WARNING_THRESHOLD = 1.5; // Warn if ratio < 1.5x
 const SOLVENCY_CRITICAL_THRESHOLD = 1.0; // Pause if ratio < 1.0x
 const BPS = 10000;
 
-// ── HTTP: Fetch TVL from DeFiLlama ──────────────────────────────────────
+// ── Confidential HTTP: Fetch TVL from DeFiLlama ─────────────────────────
+
+function decodeBody(body: Uint8Array): string {
+	return new TextDecoder().decode(body);
+}
 
 const fetchProtocolTvl = (
-	sendRequester: HTTPSendRequester,
+	sendRequester: ConfidentialHTTPSendRequester,
 	config: Config,
 ): number => {
 	const url = `${config.defiLlamaApiUrl}/tvl/${config.monitoredProtocol}`;
 	const response = sendRequester
-		.sendRequest({ url, method: "GET" })
+		.sendRequest({
+			request: { url, method: "GET" },
+			encryptOutput: false,
+		})
 		.result();
 
-	if (!ok(response)) {
+	if (response.statusCode < 200 || response.statusCode >= 300) {
 		throw new Error(
 			`DeFiLlama API failed (${response.statusCode}) for ${config.monitoredProtocol}`,
 		);
 	}
 
-	const tvlText = text(response);
+	const tvlText = decodeBody(response.body);
 	const tvl = Number.parseFloat(tvlText);
 
 	if (Number.isNaN(tvl)) {
@@ -119,25 +128,40 @@ type PoolHealth = {
 
 type VerificationStatus = "HEALTHY" | "WARNING" | "CRITICAL";
 
+// ── Result Type ─────────────────────────────────────────────────────────
+
+type ReserveVerifierResult = {
+	action?: string;
+	reason?: string;
+	status?: VerificationStatus;
+	protocolTvl?: number;
+	poolLiquidity?: number;
+	utilizationBps?: number;
+	solvencyRatio?: number;
+	isPaused?: boolean;
+};
+
 // ── Main Handler ────────────────────────────────────────────────────────
 
-const onCronTrigger = (runtime: Runtime<Config>) => {
+const onCronTrigger = (runtime: Runtime<Config>): ReserveVerifierResult => {
 	const config = runtime.config;
 
 	runtime.log("=== Reserve Verifier: Pool Solvency Check ===");
+	resetPrivacyReport();
 
-	// ── 1. Fetch protocol TVL from DeFiLlama ────────────────────────
+	// ── 1. Fetch protocol TVL from DeFiLlama (Confidential HTTP) ────
 	let protocolTvl: number;
 	try {
-		const httpClient = new HTTPClient();
-		protocolTvl = httpClient
+		const confidentialHTTP = new ConfidentialHTTPClient();
+		trackConfidentialRequest(runtime, "DeFiLlama TVL", false);
+		protocolTvl = confidentialHTTP
 			.sendRequest(runtime, fetchProtocolTvl, consensusMedianAggregation())(
 				config,
 			)
 			.result();
 		runtime.log(`Protocol TVL: $${(protocolTvl / 1e9).toFixed(2)}B`);
 	} catch (err) {
-		runtime.log(`TVL fetch failed: ${String(err)}. Using default 0.`);
+		runtime.log(`Confidential HTTP fetch failed: ${String(err)}. Using default 0.`);
 		protocolTvl = 0;
 	}
 
@@ -281,39 +305,23 @@ const onCronTrigger = (runtime: Runtime<Config>) => {
 			`CRITICAL: Pool solvency (${solvencyRatio.toFixed(2)}x) below critical threshold (${SOLVENCY_CRITICAL_THRESHOLD}x). Pausing new shields.`,
 		);
 
-		// Pause new shield activations
+		// Pause new shield activations via private transaction
 		const gasLimit = config.gasLimit ?? "500000";
 		const pauseData = encodeFunctionData({
 			abi: INSURANCE_POOL_ABI,
 			functionName: "pauseNewShields",
 		});
 
-		try {
-			const report = runtime
-				.report(prepareReportRequest(pauseData))
-				.result();
-
-			const resp = evmClient
-				.writeReport(runtime, {
-					receiver: config.insurancePoolAddress,
-					report,
-					gasConfig: { gasLimit: BigInt(gasLimit) },
-				})
-				.result();
-
-			if (resp.txStatus !== TxStatus.SUCCESS) {
-				runtime.log(
-					`pauseNewShields failed: ${resp.errorMessage ?? `status=${resp.txStatus}`}`,
-				);
-			} else {
-				runtime.log("pauseNewShields executed successfully");
-			}
-		} catch (err) {
-			runtime.log(`pauseNewShields error: ${String(err)}`);
-		}
+		privateTransact(runtime, evmClient, {
+			receiver: config.insurancePoolAddress,
+			callData: pauseData,
+			gasLimit,
+			label: "InsurancePool.pauseNewShields",
+		});
 	}
 
 	runtime.log(`[RESERVE_VERIFIER] Verification complete. Status: ${status}`);
+	logPrivacyStatus(runtime);
 
 	return {
 		status,

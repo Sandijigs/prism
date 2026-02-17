@@ -11,21 +11,23 @@
 import {
 	CronCapability,
 	consensusMedianAggregation,
+	ConfidentialHTTPClient,
+	type ConfidentialHTTPSendRequester,
 	EVMClient,
-	HTTPClient,
-	type HTTPSendRequester,
 	encodeCallMsg,
 	getNetwork,
 	handler,
 	LATEST_BLOCK_NUMBER,
-	ok,
-	prepareReportRequest,
 	Runner,
 	type Runtime,
-	text,
-	TxStatus,
 	bytesToHex,
 } from "@chainlink/cre-sdk";
+import {
+	trackConfidentialRequest,
+	logPrivacyStatus,
+	resetPrivacyReport,
+} from "../shared/confidential-http";
+import { privateTransact } from "../shared/private-tx";
 import {
 	type Address,
 	decodeFunctionResult,
@@ -95,22 +97,29 @@ let previousTvl = 0;
 
 // ── HTTP: Fetch TVL from DeFiLlama ──────────────────────────────────────
 
+function decodeBody(body: Uint8Array): string {
+	return new TextDecoder().decode(body);
+}
+
 const fetchProtocolTvl = (
-	sendRequester: HTTPSendRequester,
+	sendRequester: ConfidentialHTTPSendRequester,
 	config: Config,
 ): number => {
 	const url = `${config.defiLlamaApiUrl}/tvl/${config.monitoredProtocol}`;
 	const response = sendRequester
-		.sendRequest({ url, method: "GET" })
+		.sendRequest({
+			request: { url, method: "GET" },
+			encryptOutput: false,
+		})
 		.result();
 
-	if (!ok(response)) {
+	if (response.statusCode < 200 || response.statusCode >= 300) {
 		throw new Error(
 			`DeFiLlama API failed (${response.statusCode}) for ${config.monitoredProtocol}`,
 		);
 	}
 
-	const tvlText = text(response);
+	const tvlText = decodeBody(response.body);
 	const tvl = Number.parseFloat(tvlText);
 
 	if (Number.isNaN(tvl)) {
@@ -150,23 +159,36 @@ function computeRiskScore(
 
 // ── Main Handler ────────────────────────────────────────────────────────
 
-const onCronTrigger = (runtime: Runtime<Config>) => {
+interface MonitorResult {
+	action: string;
+	reason?: string;
+	riskScore?: number;
+	currentPrice?: number;
+	tvlChangePercent?: string;
+	zone?: string;
+	error?: string;
+	tradeAmount?: number;
+}
+
+const onCronTrigger = (runtime: Runtime<Config>): MonitorResult => {
 	const config = runtime.config;
 
 	runtime.log(`=== Risk Monitor: ${config.monitoredProtocol} ===`);
+	resetPrivacyReport();
 
-	// ── 1. Fetch TVL via HTTP with DON consensus ────────────────────────
+	// ── 1. Fetch TVL via Confidential HTTP with DON consensus ───────────
 	let currentTvl: number;
 	try {
-		const httpClient = new HTTPClient();
-		currentTvl = httpClient
+		const confidentialHTTP = new ConfidentialHTTPClient();
+		trackConfidentialRequest(runtime, "DeFiLlama TVL", false);
+		currentTvl = confidentialHTTP
 			.sendRequest(runtime, fetchProtocolTvl, consensusMedianAggregation())(
 				config,
 			)
 			.result();
 		runtime.log(`TVL fetched: $${(currentTvl / 1e9).toFixed(2)}B`);
 	} catch (err) {
-		runtime.log(`HTTP fetch failed: ${String(err)}. Skipping cycle.`);
+		runtime.log(`Confidential HTTP fetch failed: ${String(err)}. Skipping cycle.`);
 		return { action: "skip", reason: "api_error" };
 	}
 
@@ -273,7 +295,7 @@ const onCronTrigger = (runtime: Runtime<Config>) => {
 			`Score-price divergence (${absDiff}) below threshold (${SCORE_DIVERGENCE_THRESHOLD}). No action.`,
 		);
 		return {
-			action: "none" as const,
+			action: "none",
 			riskScore,
 			currentPrice: Number(currentPrice),
 			tvlChangePercent: tvlChange,
@@ -282,7 +304,7 @@ const onCronTrigger = (runtime: Runtime<Config>) => {
 	}
 
 	// Risk score higher than market → buy RISK (push price up)
-	const action = priceDiff > 0 ? ("buy" as const) : ("sell" as const);
+	const action = priceDiff > 0 ? "buy" : "sell";
 
 	// Trade size: 100 USDC per point of divergence (simplified for hackathon)
 	const tradeUsdcAmount = BigInt(absDiff) * 100n * 1_000_000n; // 6 decimals
@@ -291,7 +313,7 @@ const onCronTrigger = (runtime: Runtime<Config>) => {
 		`Action: ${action} ${Number(tradeUsdcAmount) / 1e6} USDC (divergence=${priceDiff})`,
 	);
 
-	// ── 5. Execute trade via on-chain write ──────────────────────────────
+	// ── 5. Execute trade via private transaction ────────────────────────
 	if (action === "buy") {
 		const writeCallData = encodeFunctionData({
 			abi: RISK_MARKET_ABI,
@@ -299,30 +321,20 @@ const onCronTrigger = (runtime: Runtime<Config>) => {
 			args: [tradeUsdcAmount],
 		});
 
-		const report = runtime
-			.report(prepareReportRequest(writeCallData))
-			.result();
+		const result = privateTransact(runtime, evmClient, {
+			receiver: config.riskMarketAddress,
+			callData: writeCallData,
+			gasLimit: config.gasLimit ?? "500000",
+			label: "RiskMarket.buyRisk",
+		});
 
-		const resp = evmClient
-			.writeReport(runtime, {
-				receiver: config.riskMarketAddress,
-				report,
-				gasConfig: { gasLimit: BigInt(config.gasLimit ?? "500000") },
-			})
-			.result();
-
-		if (resp.txStatus !== TxStatus.SUCCESS) {
-			runtime.log(
-				`Trade failed: ${resp.errorMessage ?? `status=${resp.txStatus}`}`,
-			);
+		if (!result.success) {
 			return {
-				action: "trade_failed" as const,
+				action: "trade_failed",
 				riskScore,
-				error: resp.errorMessage ?? "unknown",
+				error: result.error ?? "unknown",
 			};
 		}
-
-		runtime.log("Buy trade executed successfully");
 	}
 
 	// Sell requires holding RISK tokens — for the hackathon the CRE
@@ -332,6 +344,8 @@ const onCronTrigger = (runtime: Runtime<Config>) => {
 			"Sell signal detected but not executed (no RISK inventory). Logged for alerting.",
 		);
 	}
+
+	logPrivacyStatus(runtime);
 
 	return {
 		action,

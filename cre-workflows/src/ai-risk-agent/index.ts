@@ -45,6 +45,12 @@ import {
 	zeroAddress,
 } from "viem";
 import { z } from "zod";
+import {
+	trackConfidentialRequest,
+	logPrivacyStatus,
+	resetPrivacyReport,
+} from "../shared/confidential-http";
+import { privateTransact } from "../shared/private-tx";
 
 // ── Config ──────────────────────────────────────────────────────────────
 
@@ -320,6 +326,7 @@ function fetchAllSources(
 	// Source 1: DeFiLlama TVL (required — skip cycle if this fails)
 	let currentTvl: number;
 	try {
+		trackConfidentialRequest(runtime, "DeFiLlama TVL", false);
 		currentTvl = confidentialHTTP
 			.sendRequest(runtime, fetchTvl, consensusMedianAggregation())(config)
 			.result();
@@ -355,6 +362,7 @@ function fetchAllSources(
 	// Source 2: DeFiLlama Stablecoins
 	let stablecoins: AggregatedData["stablecoins"] = null;
 	try {
+		trackConfidentialRequest(runtime, "DeFiLlama Stablecoins", false);
 		const mcap = confidentialHTTP
 			.sendRequest(
 				runtime,
@@ -383,6 +391,7 @@ function fetchAllSources(
 	// Source 3: GitHub commit_activity
 	let github: AggregatedData["github"] = null;
 	try {
+		trackConfidentialRequest(runtime, "GitHub commits", false);
 		const weeklyCommits = confidentialHTTP
 			.sendRequest(
 				runtime,
@@ -411,6 +420,7 @@ function fetchAllSources(
 	// Source 4: CoinGecko global sentiment
 	let sentiment: AggregatedData["sentiment"] = null;
 	try {
+		trackConfidentialRequest(runtime, "CoinGecko sentiment", false);
 		const marketCapChange24h = confidentialHTTP
 			.sendRequest(
 				runtime,
@@ -594,6 +604,7 @@ function analyzeWithLLM(
 	currentZone: string,
 ): LLMAnalysis | null {
 	try {
+		trackConfidentialRequest(runtime, "LLM Risk Analysis", true);
 		const score = confidentialHTTP
 			.sendRequest(
 				runtime,
@@ -760,39 +771,26 @@ function executeTrade(
 		return { executed: false, amount: tradeSize };
 	}
 
-	// Execute BUY_RISK
+	// Execute BUY_RISK via private transaction
 	if (analysis.recommendation === "BUY_RISK") {
-		try {
-			const evmClient = new EVMClient(network.chainSelector.selector);
-			const writeCallData = encodeFunctionData({
-				abi: RISK_MARKET_ABI,
-				functionName: "buyRisk",
-				args: [tradeAmount],
-			});
+		const evmClient = new EVMClient(network.chainSelector.selector);
+		const writeCallData = encodeFunctionData({
+			abi: RISK_MARKET_ABI,
+			functionName: "buyRisk",
+			args: [tradeAmount],
+		});
 
-			const report = runtime
-				.report(prepareReportRequest(writeCallData))
-				.result();
+		const result = privateTransact(runtime, evmClient, {
+			receiver: config.riskMarketAddress,
+			callData: writeCallData,
+			gasLimit: config.gasLimit ?? "500000",
+			label: "RiskMarket.buyRisk",
+		});
 
-			const resp = evmClient
-				.writeReport(runtime, {
-					receiver: config.riskMarketAddress,
-					report,
-					gasConfig: { gasLimit: config.gasLimit ?? "500000" },
-				})
-				.result();
-
-			if (resp.txStatus === TxStatus.SUCCESS) {
-				lastTradeScore = analysis.riskScore;
-				lastTradeTimestamp = now;
-				runtime.log("[TRADE] BUY_RISK executed successfully");
-				return { executed: true, amount: tradeSize };
-			}
-			runtime.log(
-				`[TRADE] BUY_RISK failed: ${resp.errorMessage ?? `status=${resp.txStatus}`}`,
-			);
-		} catch (err) {
-			runtime.log(`[TRADE] BUY_RISK error: ${String(err)}`);
+		if (result.success) {
+			lastTradeScore = analysis.riskScore;
+			lastTradeTimestamp = now;
+			return { executed: true, amount: tradeSize };
 		}
 	}
 
@@ -833,6 +831,7 @@ const onCronTrigger = (runtime: Runtime<Config>): AgentResult => {
 	runtime.log(
 		`=== AI Risk Agent [${cycleId}]: ${config.monitoredProtocol} ===`,
 	);
+	resetPrivacyReport();
 
 	const confidentialHTTP = new ConfidentialHTTPClient();
 
@@ -957,6 +956,8 @@ const onCronTrigger = (runtime: Runtime<Config>): AgentResult => {
 
 	// Structured decision log for observability
 	runtime.log(`[DECISION] ${JSON.stringify(decision)}`);
+
+	logPrivacyStatus(runtime);
 
 	return {
 		recommendation: analysis.recommendation,

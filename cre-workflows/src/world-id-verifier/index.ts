@@ -13,16 +13,14 @@ import {
 	CronCapability,
 	ConfidentialHTTPClient,
 	type ConfidentialHTTPSendRequester,
-	consensusMedianAggregation,
+	consensusIdenticalAggregation,
 	EVMClient,
 	encodeCallMsg,
 	getNetwork,
 	handler,
 	LATEST_BLOCK_NUMBER,
-	prepareReportRequest,
 	Runner,
 	type Runtime,
-	TxStatus,
 	bytesToHex,
 } from "@chainlink/cre-sdk";
 import {
@@ -32,6 +30,11 @@ import {
 	zeroAddress,
 } from "viem";
 import { z } from "zod";
+import {
+	logPrivacyStatus,
+	resetPrivacyReport,
+} from "../shared/confidential-http";
+import { privateTransact } from "../shared/private-tx";
 
 // ── Config ──────────────────────────────────────────────────────────────
 
@@ -150,12 +153,23 @@ const verifyUser = (
 	}
 };
 
+// ── Result Type ─────────────────────────────────────────────────────────
+
+type WorldIdVerifierResult = {
+	action: string;
+	reason?: string;
+	verifiedCount?: number;
+	mode?: string;
+	totalAddresses?: number;
+};
+
 // ── Main Handler ────────────────────────────────────────────────────────
 
-const onCronTrigger = (runtime: Runtime<Config>) => {
+const onCronTrigger = (runtime: Runtime<Config>): WorldIdVerifierResult => {
 	const config = runtime.config;
 
 	runtime.log("=== World ID Verifier: Identity Verification ===");
+	resetPrivacyReport();
 
 	// Determine verification mode
 	const useMockMode = !config.worldIdApiUrl || config.worldIdApiUrl === "";
@@ -246,7 +260,7 @@ const onCronTrigger = (runtime: Runtime<Config>) => {
 			// Real verification via Confidential HTTP
 			const confidentialHTTP = new ConfidentialHTTPClient();
 			verificationResult = confidentialHTTP
-				.sendRequest(runtime, verifyUser, consensusMedianAggregation())(
+				.sendRequest(runtime, verifyUser, consensusIdenticalAggregation<VerificationResult>())(
 					config,
 					userAddress,
 				)
@@ -269,42 +283,30 @@ const onCronTrigger = (runtime: Runtime<Config>) => {
 			`User ${userAddress} verified via ${verificationResult.method} method`,
 		);
 
-		// ── 4. Update WorldIDGate contract ──────────────────────────
+		// ── 4. Update WorldIDGate contract via private transaction ──
 		const mockVerifyData = encodeFunctionData({
 			abi: WORLD_ID_GATE_ABI,
 			functionName: "mockVerify",
 			args: [userAddress as Address],
 		});
 
-		try {
-			const report = runtime
-				.report(prepareReportRequest(mockVerifyData))
-				.result();
+		const result = privateTransact(runtime, evmClient, {
+			receiver: config.worldIdGateAddress,
+			callData: mockVerifyData,
+			gasLimit,
+			label: `WorldIDGate.mockVerify(${userAddress.slice(0, 8)}...)`,
+		});
 
-			const resp = evmClient
-				.writeReport(runtime, {
-					receiver: config.worldIdGateAddress,
-					report,
-					gasConfig: { gasLimit: BigInt(gasLimit) },
-				})
-				.result();
-
-			if (resp.txStatus !== TxStatus.SUCCESS) {
-				runtime.log(
-					`WorldIDGate.mockVerify failed for ${userAddress}: ${resp.errorMessage ?? `status=${resp.txStatus}`}`,
-				);
-			} else {
-				runtime.log(`Updated WorldIDGate: ${userAddress} verified on-chain`);
-				verifiedCount++;
-			}
-		} catch (err) {
-			runtime.log(`Error updating WorldIDGate: ${String(err)}`);
+		if (result.success) {
+			verifiedCount++;
 		}
 	}
 
 	runtime.log(
 		`[WORLD_ID_VERIFIER] Verified ${verifiedCount} user(s) successfully`,
 	);
+
+	logPrivacyStatus(runtime);
 
 	return {
 		action: "verification_complete",

@@ -4,7 +4,7 @@
 	"chainRpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
 	"chainSelectorName": "ethereum-testnet-sepolia",
 	"llmApiUrl": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
-	"llmApiKey": "AIzaSyA2qel1FbMUFkJTvR8t9iskIF9oMjd6f7I",
+	"llmApiKey": "${SECRETS.llmApiKey}",
 	"defiLlamaApiUrl": "https://api.llama.fi",
 	"githubApiUrl": "https://api.github.com",
 	"githubRepo": "aave/aave-v3-origin",

@@ -30,6 +30,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# ── CRE Secrets ──
+cre-workflows/config/secrets.yaml
+
 # ── Misc ──
 coverage/
 lcov.info

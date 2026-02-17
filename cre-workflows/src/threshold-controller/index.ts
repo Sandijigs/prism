@@ -27,10 +27,8 @@ import {
 	getNetwork,
 	handler,
 	LATEST_BLOCK_NUMBER,
-	prepareReportRequest,
 	Runner,
 	type Runtime,
-	TxStatus,
 	bytesToHex,
 } from "@chainlink/cre-sdk";
 import {
@@ -40,6 +38,12 @@ import {
 	zeroAddress,
 } from "viem";
 import { z } from "zod";
+import { resetPrivacyReport } from "../shared/confidential-http";
+import {
+	privateTransact,
+	logPrivateTxStatus,
+	resetPrivateTxReport,
+} from "../shared/private-tx";
 
 // ── Config ──────────────────────────────────────────────────────────────
 
@@ -124,7 +128,7 @@ const RED_ZONE_MAX_RETRIES = 3;
 // Track previous zone across invocations (in-memory for simulation)
 let previousZone: number = -1; // -1 = uninitialized
 
-// ── Helpers: On-Chain Operations ───────────────────────────────────────
+// ── Helpers: On-Chain Operations (Private Transactions) ─────────────────
 
 function executeWrite(
 	runtime: Runtime<Config>,
@@ -134,32 +138,13 @@ function executeWrite(
 	gasLimit: string,
 	description: string,
 ): boolean {
-	try {
-		const report = runtime
-			.report(prepareReportRequest(callData))
-			.result();
-
-		const resp = evmClient
-			.writeReport(runtime, {
-				receiver,
-				report,
-				gasConfig: { gasLimit: BigInt(gasLimit) },
-			})
-			.result();
-
-		if (resp.txStatus !== TxStatus.SUCCESS) {
-			runtime.log(
-				`${description} FAILED: ${resp.errorMessage ?? `status=${resp.txStatus}`}`,
-			);
-			return false;
-		}
-
-		runtime.log(`${description} succeeded`);
-		return true;
-	} catch (err) {
-		runtime.log(`${description} error: ${String(err)}`);
-		return false;
-	}
+	const result = privateTransact(runtime, evmClient, {
+		receiver,
+		callData,
+		gasLimit,
+		label: description,
+	});
+	return result.success;
 }
 
 function executeWriteWithRetry(
@@ -171,32 +156,21 @@ function executeWriteWithRetry(
 	description: string,
 	maxRetries = 3,
 ): boolean {
-	for (let attempt = 1; attempt <= maxRetries; attempt++) {
-		runtime.log(`${description} attempt ${attempt}/${maxRetries}`);
+	const result = privateTransact(runtime, evmClient, {
+		receiver,
+		callData,
+		gasLimit,
+		label: description,
+		maxRetries,
+	});
 
-		const success = executeWrite(
-			runtime,
-			evmClient,
-			receiver,
-			callData,
-			gasLimit,
-			`${description} [attempt ${attempt}]`,
+	if (!result.success) {
+		runtime.log(
+			`CRITICAL: ${description} failed after ${result.attempts} retries! Manual intervention required.`,
 		);
-
-		if (success) return true;
-
-		if (attempt < maxRetries) {
-			const delayMs = 1000 * 2 ** (attempt - 1);
-			runtime.log(
-				`Retry scheduled: ${delayMs}ms exponential backoff before attempt ${attempt + 1}`,
-			);
-		}
 	}
 
-	runtime.log(
-		`CRITICAL: ${description} failed after ${maxRetries} retries! Manual intervention required.`,
-	);
-	return false;
+	return result.success;
 }
 
 function readPoolUtilization(
@@ -426,6 +400,8 @@ const onCronTrigger = (runtime: Runtime<Config>): WorkflowResult => {
 	const config = runtime.config;
 
 	runtime.log("=== Threshold Controller: Zone Check ===");
+	resetPrivacyReport();
+	resetPrivateTxReport();
 
 	// ── 1. Set up EVM client ─────────────────────────────────────────
 	const network = getNetwork({
@@ -558,6 +534,8 @@ const onCronTrigger = (runtime: Runtime<Config>): WorkflowResult => {
 	// Update tracked zone
 	const prevZoneForReturn = previousZone;
 	previousZone = currentZone;
+
+	logPrivateTxStatus(runtime);
 
 	return {
 		action: isUpgrade ? "escalation" : "de-escalation",
