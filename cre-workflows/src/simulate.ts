@@ -667,7 +667,7 @@ class SimulationEngine {
 		console.log(
 			chalk.dim(`  Timestamp: ${new Date().toISOString()}`),
 		);
-		console.log(chalk.dim("  Network:   Tenderly VTN v5"));
+		console.log(chalk.dim("  Network:   Tenderly VTN v6"));
 		if (VERBOSE) {
 			console.log(chalk.dim(`  RPC:       ${rpcUrl}`));
 			console.log(
