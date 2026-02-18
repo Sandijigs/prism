@@ -339,6 +339,26 @@ contract IntegrationTest is Test {
     //  World ID Required for Shield Activation
     // ══════════════════════════════════════════════════════════════════════
 
+    function test_PoolPauseResume() public {
+        vm.prank(lp);
+        pool.depositLiquidity(LP_DEPOSIT);
+
+        // Pool should accept shields initially
+        assertTrue(pool.canAcceptNewShield(1_000 * USDC_UNIT));
+
+        // CRE workflow pauses new shields
+        pool.pauseNewShields();
+        assertFalse(pool.canAcceptNewShield(1_000 * USDC_UNIT), "Should reject shields when paused");
+
+        // CRE workflow resumes
+        pool.resumeNewShields();
+        assertTrue(pool.canAcceptNewShield(1_000 * USDC_UNIT), "Should accept shields after resume");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  World ID Required for Shield Activation
+    // ══════════════════════════════════════════════════════════════════════
+
     function test_ShieldRequiresWorldId() public {
         address unverified = makeAddr("unverified");
         usdc.mint(unverified, 10_000 * USDC_UNIT);
