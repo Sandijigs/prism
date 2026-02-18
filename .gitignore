@@ -4,9 +4,9 @@
 .env.*.local
 
 # ── Foundry ──
-contracts/out/
-contracts/cache/
-contracts/broadcast/
+[[]pok/out/
+[[]pok/cache/
+[[]pok/broadcast/
 
 # ── Node / TypeScript ──
 node_modules/
@@ -30,8 +30,10 @@ Thumbs.db
 *.swp
 *.swo
 
-# ── CRE Secrets ──
+# ── CRE Secrets & Build Artifacts ──
 cre-workflows/config/secrets.yaml
+cre-workflows/src/*/tmp.js
+cre-workflows/src/*/tmp.wasm
 
 # ── Misc ──
 coverage/
