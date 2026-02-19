@@ -46,6 +46,9 @@ export default function RootLayout({
                     <Link href="/shield" className="text-gray-300 hover:text-white transition-colors">
                       Shield
                     </Link>
+                    <Link href="/portfolio" className="text-gray-300 hover:text-white transition-colors">
+                      Portfolio
+                    </Link>
                     <Link href="/analytics" className="text-gray-300 hover:text-white transition-colors">
                       Analytics
                     </Link>
