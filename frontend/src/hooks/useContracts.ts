@@ -5,34 +5,42 @@ import { ethers } from 'ethers';
 const RISK_MARKET_ADDRESS = process.env.NEXT_PUBLIC_RISK_MARKET_ADDRESS || '';
 const SHIELD_VAULT_ADDRESS = process.env.NEXT_PUBLIC_SHIELD_VAULT_ADDRESS || '';
 const INSURANCE_POOL_ADDRESS = process.env.NEXT_PUBLIC_INSURANCE_POOL_ADDRESS || '';
-const RPC_URL = process.env.NEXT_PUBLIC_TENDERLY_RPC_URL || '';
+const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || '';
 
 // ABI fragments (only the functions we need)
 const RISK_MARKET_ABI = [
   'function getCurrentZone() view returns (uint8)',
   'function getCurrentRiskPrice() view returns (uint256)',
-  'function totalRiskTokens() view returns (uint256)',
-  'function totalUsdcLiquidity() view returns (uint256)',
-  'function isResolved() view returns (bool)',
+  'function riskPool() view returns (uint256)',
+  'function usdcPool() view returns (uint256)',
+  'function resolved() view returns (bool)',
 ];
 
 const SHIELD_VAULT_ABI = [
   'function deposits(address) view returns (uint256)',
-  'function shieldActivated(address) view returns (bool)',
-  'function protectionLevel() view returns (uint8)',
+  'function shieldActive(address) view returns (bool)',
+  'function protectionLevel(address) view returns (uint256)',
+  'function premiumPaid(address) view returns (uint256)',
+  'function protectedProtocol(address) view returns (address)',
+  'function securedAmount(address) view returns (uint256)',
+  'function calculatePremium(uint256) view returns (uint256)',
 ];
 
 const INSURANCE_POOL_ABI = [
-  'function totalLiquidity() view returns (uint256)',
-  'function totalClaims() view returns (uint256)',
+  'function totalPoolBalance() view returns (uint256)',
+  'function totalPremiumsCollected() view returns (uint256)',
+  'function totalClaimsPaid() view returns (uint256)',
   'function currentUtilizationBps() view returns (uint256)',
-  'function isPaused() view returns (bool)',
+  'function paused() view returns (bool)',
 ];
 
 // Helper to get provider
 function getProvider() {
   if (typeof window !== 'undefined' && RPC_URL) {
-    return new ethers.providers.JsonRpcProvider(RPC_URL);
+    return new ethers.providers.StaticJsonRpcProvider(RPC_URL, {
+      name: 'tenderly-vtn',
+      chainId: Number(process.env.NEXT_PUBLIC_CHAIN_ID) || 73571,
+    });
   }
   return null;
 }
@@ -50,7 +58,7 @@ export interface RiskMarketData {
   error: string | null;
 }
 
-export function useRiskMarket(): RiskMarketData {
+export function useRiskMarket(refreshTrigger = 0): RiskMarketData {
   const [data, setData] = useState<RiskMarketData>({
     price: 3.2,
     zone: 'Green',
@@ -78,20 +86,20 @@ export function useRiskMarket(): RiskMarketData {
       try {
         const contract = new ethers.Contract(RISK_MARKET_ADDRESS, RISK_MARKET_ABI, provider);
 
-        const [zone, price, totalRisk, totalUsdc, isResolved] = await Promise.all([
+        const [zone, price, riskReserve, usdcReserve, isResolved] = await Promise.all([
           contract.getCurrentZone(),
           contract.getCurrentRiskPrice(),
-          contract.totalRiskTokens(),
-          contract.totalUsdcLiquidity(),
-          contract.isResolved(),
+          contract.riskPool(),
+          contract.usdcPool(),
+          contract.resolved(),
         ]);
 
         if (isMounted) {
           setData({
-            price: Number(ethers.utils.formatUnits(price, 4)) / 100, // Price is in basis points
+            price: Number(price), // getCurrentRiskPrice returns 0-100 integer (percentage)
             zone: ZONE_NAMES[zone] || 'Green',
-            totalRisk: ethers.utils.formatUnits(totalRisk, 18),
-            totalUsdc: ethers.utils.formatUnits(totalUsdc, 6),
+            totalRisk: ethers.utils.formatUnits(riskReserve, 18),
+            totalUsdc: ethers.utils.formatUnits(usdcReserve, 18),
             isResolved,
             loading: false,
             error: null,
@@ -114,7 +122,7 @@ export function useRiskMarket(): RiskMarketData {
       isMounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [refreshTrigger]);
 
   return data;
 }
@@ -123,15 +131,21 @@ export interface ShieldVaultData {
   deposit: string;
   shieldActive: boolean;
   protectionLevel: number;
+  premiumPaid: string;
+  protectedProtocol: string;
+  securedAmount: string;
   loading: boolean;
   error: string | null;
 }
 
-export function useShieldVault(address?: string): ShieldVaultData {
+export function useShieldVault(address?: string, refreshTrigger = 0): ShieldVaultData {
   const [data, setData] = useState<ShieldVaultData>({
     deposit: '0',
     shieldActive: false,
     protectionLevel: 0,
+    premiumPaid: '0',
+    protectedProtocol: '',
+    securedAmount: '0',
     loading: true,
     error: null,
   });
@@ -152,17 +166,23 @@ export function useShieldVault(address?: string): ShieldVaultData {
       try {
         const contract = new ethers.Contract(SHIELD_VAULT_ADDRESS, SHIELD_VAULT_ABI, provider);
 
-        const [deposit, shieldActive, protectionLevel] = await Promise.all([
+        const [deposit, active, level, premium, protocol, secured] = await Promise.all([
           contract.deposits(address),
-          contract.shieldActivated(address),
-          contract.protectionLevel(),
+          contract.shieldActive(address),
+          contract.protectionLevel(address),
+          contract.premiumPaid(address),
+          contract.protectedProtocol(address),
+          contract.securedAmount(address),
         ]);
 
         if (isMounted) {
           setData({
             deposit: ethers.utils.formatUnits(deposit, 6),
-            shieldActive,
-            protectionLevel,
+            shieldActive: active,
+            protectionLevel: Number(level),
+            premiumPaid: ethers.utils.formatUnits(premium, 6),
+            protectedProtocol: protocol,
+            securedAmount: ethers.utils.formatUnits(secured, 6),
             loading: false,
             error: null,
           });
@@ -183,14 +203,15 @@ export function useShieldVault(address?: string): ShieldVaultData {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [address]);
+  }, [address, refreshTrigger]);
 
   return data;
 }
 
 export interface InsurancePoolData {
-  totalLiquidity: string;
-  totalClaims: string;
+  totalPoolBalance: string;
+  totalPremiumsCollected: string;
+  totalClaimsPaid: string;
   utilization: number;
   isPaused: boolean;
   loading: boolean;
@@ -199,9 +220,10 @@ export interface InsurancePoolData {
 
 export function useInsurancePool(): InsurancePoolData {
   const [data, setData] = useState<InsurancePoolData>({
-    totalLiquidity: '5000000',
-    totalClaims: '250000',
-    utilization: 500, // 5% in basis points
+    totalPoolBalance: '0',
+    totalPremiumsCollected: '0',
+    totalClaimsPaid: '0',
+    utilization: 0,
     isPaused: false,
     loading: true,
     error: null,
@@ -223,19 +245,21 @@ export function useInsurancePool(): InsurancePoolData {
       try {
         const contract = new ethers.Contract(INSURANCE_POOL_ADDRESS, INSURANCE_POOL_ABI, provider);
 
-        const [totalLiquidity, totalClaims, utilization, isPaused] = await Promise.all([
-          contract.totalLiquidity(),
-          contract.totalClaims(),
+        const [poolBalance, premiums, claims, utilization, paused] = await Promise.all([
+          contract.totalPoolBalance(),
+          contract.totalPremiumsCollected(),
+          contract.totalClaimsPaid(),
           contract.currentUtilizationBps(),
-          contract.isPaused(),
+          contract.paused(),
         ]);
 
         if (isMounted) {
           setData({
-            totalLiquidity: ethers.utils.formatUnits(totalLiquidity, 6),
-            totalClaims: ethers.utils.formatUnits(totalClaims, 6),
+            totalPoolBalance: ethers.utils.formatUnits(poolBalance, 6),
+            totalPremiumsCollected: ethers.utils.formatUnits(premiums, 6),
+            totalClaimsPaid: ethers.utils.formatUnits(claims, 6),
             utilization: utilization.toNumber(),
-            isPaused,
+            isPaused: paused,
             loading: false,
             error: null,
           });

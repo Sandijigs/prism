@@ -1,22 +1,107 @@
 'use client';
 
-import type { Metadata } from 'next';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import './globals.css';
 import { Providers } from './providers';
-import { ConnectButton } from 'thirdweb/react';
-import { client, chain, TENDERLY_EXPLORER_URL } from '../lib/thirdweb';
+import { ConnectButton, useActiveAccount, useActiveWallet, useActiveWalletChain, useDisconnect } from 'thirdweb/react';
+import { client, chain, TENDERLY_EXPLORER_URL, EXPLORER_URL } from '../lib/thirdweb';
+
+const CHAIN_NAMES: Record<number, string> = {
+  73571: 'Tenderly VTN',
+  11155111: 'Sepolia',
+  1: 'Ethereum',
+};
 
 function WalletConnectButton() {
+  const account = useActiveAccount();
+  const wallet = useActiveWallet();
+  const walletChain = useActiveWalletChain();
+  const { disconnect } = useDisconnect();
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const networkName = walletChain?.id
+    ? CHAIN_NAMES[walletChain.id] || `Chain ${walletChain.id}`
+    : CHAIN_NAMES[parseInt(process.env.NEXT_PUBLIC_CHAIN_ID || '73571')] || 'Unknown';
+
+  // Close menu on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    }
+    if (showMenu) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMenu]);
+
+  // Not connected — use thirdweb's ConnectButton for the wallet selection modal
+  if (!account) {
+    return (
+      <ConnectButton
+        client={client}
+        chain={chain}
+        connectButton={{
+          label: 'Connect Wallet',
+          className: 'px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors',
+        }}
+      />
+    );
+  }
+
+  // Connected — custom UI to avoid thirdweb's nested <button> bug
+  const shortAddr = `${account.address.slice(0, 6)}...${account.address.slice(-4)}`;
+
   return (
-    <ConnectButton
-      client={client}
-      chain={chain}
-      connectButton={{
-        label: 'Connect Wallet',
-        className: 'px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors',
-      }}
-    />
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setShowMenu(!showMenu)}
+        className="flex items-center space-x-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-600 text-white rounded-lg font-medium transition-colors"
+      >
+        <span className="w-2 h-2 rounded-full bg-green-500" />
+        <span>{shortAddr}</span>
+        <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {showMenu && (
+        <div className="absolute right-0 mt-2 w-56 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-700">
+            <div className="text-xs text-gray-400">Connected Wallet</div>
+            <div className="text-sm font-mono text-white mt-1">{shortAddr}</div>
+            <div className="text-xs text-green-400 mt-1">{networkName}</div>
+          </div>
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(account.address);
+              setShowMenu(false);
+            }}
+            className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+          >
+            Copy Address
+          </button>
+          <a
+            href={TENDERLY_EXPLORER_URL || `${EXPLORER_URL}/address/${account.address}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+          >
+            View on Explorer
+          </a>
+          <button
+            onClick={() => {
+              if (wallet) disconnect(wallet);
+              setShowMenu(false);
+            }}
+            className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-700 border-t border-gray-700 transition-colors"
+          >
+            Disconnect
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -9,7 +9,9 @@
     "postinstall": "bun x cre-setup",
     "typecheck": "tsc --noEmit",
     "simulate": "tsx src/simulate.ts",
-    "simulate:verbose": "tsx src/simulate.ts --verbose"
+    "simulate:verbose": "tsx src/simulate.ts --verbose",
+    "demo": "tsx src/demo-live.ts",
+    "demo:verbose": "tsx src/demo-live.ts --verbose"
   },
   "dependencies": {
     "@chainlink/cre-sdk": "^1.0.9",

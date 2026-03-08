@@ -114,7 +114,6 @@ contract DeployPRISM is Script {
 
         // RiskMarket references
         riskMarket.setWorldIdGate(address(worldIdGate));
-        riskMarket.setCreWorkflow(deployer);
 
         // ShieldVault references
         shieldVault.setWorldIdGate(address(worldIdGate));
@@ -132,6 +131,9 @@ contract DeployPRISM is Script {
 
         console.log("Minting 10M test USDC to deployer...");
         usdc.mint(deployer, 10_000_000 * USDC_UNIT);
+
+        // Mint 100K USDC to test user for E2E testing
+        usdc.mint(0xeEA4353FE0641fA7730e1c9Bc7cC0f969ECd5914, 100_000 * USDC_UNIT);
 
         // Approve RiskMarket for deployer trading (before pool seeding to prioritize)
         usdc.approve(address(riskMarket), type(uint256).max);
